@@ -4,11 +4,11 @@ defmodule EctoContract.MixProject do
   def project do
     [
       app: :ecto_contract,
-      version: "0.0.1",
+      version: "0.0.2",
       elixir: "~> 1.15",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
-      elixirc_paths: elixirc_paths(Mix.env()),
+      elixirc_paths: elixirc_paths(Mix.env())
     ]
   end
 
@@ -19,7 +19,7 @@ defmodule EctoContract.MixProject do
     ]
   end
 
-   # Specifies which paths to compile per environment.
+  # Specifies which paths to compile per environment.
   defp elixirc_paths(:test), do: ["lib", "test/support"]
   defp elixirc_paths(:dev), do: ["lib", "test/support"]
   defp elixirc_paths(_), do: ["lib"]
@@ -27,7 +27,7 @@ defmodule EctoContract.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-       {:ecto, "~> 3.10"}
+      {:ecto, "~> 3.10"}
     ]
   end
 end

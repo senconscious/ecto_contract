@@ -21,6 +21,17 @@ defmodule EctoContractTest do
     assert params.user_id == user_id
   end
 
+  test "converts to map params including nested ones" do
+    {:ok, %{funnel: funnel_params} = params} =
+      IndexContract.cast_and_validate(%{funnel: %{stage_ids: [1], closed?: false}})
+
+    refute is_struct(params)
+    refute is_struct(funnel_params)
+
+    assert is_map(params)
+    assert is_map(funnel_params)
+  end
+
   test "fails on invalid parameter" do
     {:error, %Ecto.Changeset{} = changeset} = IndexContract.cast_and_validate(%{page: -1})
 

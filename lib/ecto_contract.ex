@@ -83,7 +83,8 @@ defmodule EctoContract do
   ```
   """
 
-  @callback changeset(entity :: struct(), attrs :: map(), options :: keyword()) :: Ecto.Changeset.t()
+  @callback changeset(entity :: struct(), attrs :: map(), options :: keyword()) ::
+              Ecto.Changeset.t()
 
   defmacro __using__(_opts) do
     quote do
@@ -120,10 +121,11 @@ defmodule EctoContract do
 
       For full usage example please see docs for `EctoContract`
       """
-      @spec cast_and_validate(params :: map(), options :: keyword()) :: {:ok, map()} | {:error, Ecto.Changeset.t()}
+      @spec cast_and_validate(params :: map(), options :: keyword()) ::
+              {:ok, map()} | {:error, Ecto.Changeset.t()}
       def cast_and_validate(params, options \\ []) do
         case apply_changeset(__MODULE__, params, options) do
-          {:ok, applied_params} -> {:ok, Map.from_struct(applied_params)}
+          {:ok, applied_params} -> {:ok, deep_map_from_struct(applied_params)}
           {:error, error} -> {:error, error}
         end
       end
@@ -134,6 +136,14 @@ defmodule EctoContract do
         |> schema.changeset(params, options)
         |> apply_action(:insert)
       end
+
+      defp deep_map_from_struct(struct) when is_struct(struct) do
+        for {key, value} <- Map.from_struct(struct),
+            into: %{},
+            do: {key, deep_map_from_struct(value)}
+      end
+
+      defp deep_map_from_struct(not_struct), do: not_struct
     end
   end
 end
