@@ -1,149 +1,126 @@
 defmodule EctoContract do
   @moduledoc """
-  Behaviour to validate your controller request params using ecto schema and changeset
+  Define contract for your params in controller using `Ecto.Schema` and `Ecto.Changeset`
 
   ## Usage
 
-  1. Create `contracts` folder in your web domain
-  2. Define your params module using Ecto.Schema
+  1. Define your contract in your controller
 
   ```elixir
-  defmodule AcmeWeb.Post.IndexContract do
-    use Ecto.Schema
-
-    @primary_key false
-    embedded_schema do
-      field :page, :integer, default: 1
-      field :page_size, :integer, default: 10
-      field :sort_by, :string, default: "author_name"
-      field :sort_direction, :string, default: "desc"
-    end
-  end
-  ```
-
-  3. Use `EctoContract` on top of your module and define `changeset/3` callback.
-  First argument is a struct of your embedded schema, second one - params to cast and validate,
-  third one - options that you can pass from web domain to contract module
-
-  ```elixir
-  defmodule AcmeWeb.Post.IndexContract do
-    use Ecto.Schema
-    # Add this one for utility functions
+  defmodule AcmeWeb.PostController do
+    # Imports macro `defcontract/2` for defining your contract
+    # Also imports `field/3`, `embeds_one/3`, `embeds_many/3` from `Ecto.Schema`
     use EctoContract
 
-    # As usual for building changeset
-    import Ecto.Changeset
+    # Under the hood your contract schema will be defined under name
+    # of current module concateneted with `IndexContract`
+    defcontract :index do
+      field :page, :integer
+      field :page_size, :integer
 
-    ...
+      embeds_one :simple_filter, primary_key: false do
+        field :name, :string
+      end
 
-    def changeset(entity, attrs, _options) do
-      # Define changeset as usual
-      entity
-      |> cast(attrs, [:page, :page_size, :sort_by, :sort_direction])
-      |> validate_required([:page, :page_size, :sort_by, :sort_direction])
-      |> validate_number(:page, ...)
-      ...
-      |> validate_inclusion(:sort_direction, ["asc", "desc"])
-    end
-  end
-  ```
-
-  4. Call function to cast and validate params in your controller
-
-  ```elixir
-  defmodule AcmeWeb.Posts do
-    use AcmeWeb, :controller
-
-    action_fallback AcmeWeb.FallbackController
-
-    def index(conn, params) do
-      with {:ok, params} <- AcmeWeb.Post.IndexContract.cast_and_validate(params) do
-        ## Your're cool. Now your params casted and validated
-        ...
+      embeds_many :complex_filters, primary_key: false do
+        field :id, :integer
       end
     end
   end
   ```
 
-  You can also pass context from your web domain (for example current_user set in your
-  connection assings) into `changeset/3` function via third argument:
+  2. Add simple cast logic function
 
   ```elixir
-  def index(conn, params) do
-    with {:ok, params} <- AcmeWeb.Post.IndexContract.cast_and_validate(params, user: conn.assigns.current_user) do
+  # Still in your controller
+  # Import `Ecto.Changeset` to make functions for handling changeset available
+  import Ecto.Changeset
+
+  defp index_contract(entity, attrs) do
+    entity
+    |> cast(attrs, [:page, :page_size])
+    |> cast_embed(:simple_filter, with: &index_simple_filter_contract/2)
+    |> cast_embed(:complex_filters, &index_complex_filter_contract/2)
+  end
+
+  defp index_simple_filter_contract(entity, attrs) do
+    cast(entity, attrs, [:name])
+  end
+
+  defp index_complex_filter_contract(entity, attrs) do
+    cast(entity, attrs, [:id])
   end
   ```
 
-  And in your `changeset/3`:
+  3. Validate your contract in controller action
 
   ```elixir
-  def changeset(entity, attrs, user: user) do
-    ...
+  def index(conn, params) do
+    with {:ok, casted_params} <- validate_contract(:index, params, [], &index_contract/2) do
+      posts = Posts.list_posts(casted_params)
+      render(conn, "index.json", posts: posts)
+    end
   end
   ```
   """
 
-  @callback changeset(entity :: struct(), attrs :: map(), options :: keyword()) ::
-              Ecto.Changeset.t()
+  import Ecto.Changeset, only: [apply_action: 2]
 
   defmacro __using__(_opts) do
     quote do
-      @behaviour EctoContract
+      import EctoContract, only: [defcontract: 2]
+      import Ecto.Schema, only: [field: 3, embeds_one: 3, embeds_many: 3]
 
-      import Ecto.Changeset, only: [apply_action: 2]
-
-      @doc """
-      Casts params and validates them using predefined Ecto.Changeset.
-
-      On success returns ok tuple with casted params as map as second element:
-
-      ```elixir
-      {:ok, validated_okay_params} = AcmeWeb.Post.IndexContract.cast_and_validate(okay_params)
-      ```
-
-      On error returns error tuple with Ecto.Changeset as second element:
-
-      ```elixir
-      {:error, %Ecto.Changeset{errors: errors}} = AcmeWeb.Post.IndexContract.cast_and_validate(error_params)
-      ```
-
-      You can pass context via keyword as second argument:
-
-      ```elixir
-      # In your controller
-      AcmeWeb.Post.IndexContract.cast_and_validate(params, user: current_user)
-
-      # In your contract module
-      ...
-      def changeset(entity, params, user: current_user) do
-      ...
-      ```
-
-      For full usage example please see docs for `EctoContract`
-      """
-      @spec cast_and_validate(params :: map(), options :: keyword()) ::
+      @spec validate_contract(name :: atom(), params :: map(), context :: keyword(), function()) ::
               {:ok, map()} | {:error, Ecto.Changeset.t()}
-      def cast_and_validate(params, options \\ []) do
-        case apply_changeset(__MODULE__, params, options) do
-          {:ok, applied_params} -> {:ok, deep_map_from_struct(applied_params)}
-          {:error, error} -> {:error, error}
-        end
+      def validate_contract(name, params, context, function)
+          when is_atom(name) and is_function(function) do
+        __MODULE__
+        |> EctoContract.contract_module(name)
+        |> EctoContract.validate_contract(params, context, function)
       end
-
-      defp apply_changeset(schema, params, options) do
-        schema
-        |> struct()
-        |> schema.changeset(params, options)
-        |> apply_action(:insert)
-      end
-
-      defp deep_map_from_struct(struct) when is_struct(struct) do
-        for {key, value} <- Map.from_struct(struct),
-            into: %{},
-            do: {key, deep_map_from_struct(value)}
-      end
-
-      defp deep_map_from_struct(not_struct), do: not_struct
     end
   end
+
+  defmacro defcontract(name, block) do
+    quote do
+      defmodule EctoContract.contract_module(__MODULE__, unquote(name)) do
+        use Ecto.Schema
+
+        @primary_key false
+        embedded_schema(unquote(block))
+      end
+    end
+  end
+
+  def contract_module(module, local_name) when is_atom(module) and is_atom(local_name) do
+    trimmed_local_name =
+      local_name
+      |> Atom.to_string()
+      |> String.capitalize()
+
+    Module.concat(module, trimmed_local_name <> "Contract")
+  end
+
+  def validate_contract(contract_module, attrs, context, function) do
+    case apply_contract(contract_module, attrs, context, function) do
+      {:ok, applied_params} -> {:ok, deep_map_from_struct(applied_params)}
+      {:error, error} -> {:error, error}
+    end
+  end
+
+  defp apply_contract(module, attrs, context, function) do
+    module
+    |> struct()
+    |> function.(attrs, context)
+    |> apply_action(:insert)
+  end
+
+  defp deep_map_from_struct(struct) when is_struct(struct) do
+    for {key, value} <- Map.from_struct(struct),
+        into: %{},
+        do: {key, deep_map_from_struct(value)}
+  end
+
+  defp deep_map_from_struct(not_struct), do: not_struct
 end

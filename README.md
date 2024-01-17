@@ -19,80 +19,61 @@ end
 
 ## Usage
 
-1. Create `contracts` folder in your web domain
-2. Define your params module using Ecto.Schema
+1. Define your contract in your controller
 
 ```elixir
-defmodule AcmeWeb.Post.IndexContract do
-  use Ecto.Schema
-
-  @primary_key false
-  embedded_schema do
-    field :page, :integer, default: 1
-    field :page_size, :integer, default: 10
-    field :sort_by, :string, default: "author_name"
-    field :sort_direction, :string, default: "desc"
-  end
-end
-```
-
-3. Use `EctoContract` on top of your module and define `changeset/3` callback.
-   First argument is a struct of your embedded schema, second one - params to cast and validate,
-   third one - options that you can pass from web domain to contract module
-
-```elixir
-defmodule AcmeWeb.Post.IndexContract do
-  use Ecto.Schema
-  # Add this one for utility functions
+defmodule AcmeWeb.PostController do
+  # Imports macro `defcontract/2` for defining your contract
+  # Also imports `field/3`, `embeds_one/3`, `embeds_many/3` from `Ecto.Schema`
   use EctoContract
 
-  # As usual for building changeset
-  import Ecto.Changeset
+  # Under the hood your contract schema will be defined under name
+  # of current module concateneted with `IndexContract`
+  defcontract :index do
+    field :page, :integer
+    field :page_size, :integer
 
-  ...
+    embeds_one :simple_filter, primary_key: false do
+      field :name, :string
+    end
 
-  def changeset(entity, attrs, _options) do
-    # Define changeset as usual
-    entity
-    |> cast(attrs, [:page, :page_size, :sort_by, :sort_direction])
-    |> validate_required([:page, :page_size, :sort_by, :sort_direction])
-    |> validate_number(:page, ...)
-    ...
-    |> validate_inclusion(:sort_direction, ["asc", "desc"])
-  end
-end
-```
-
-4. Call function to cast and validate params in your controller
-
-```elixir
-defmodule AcmeWeb.Posts do
-  use AcmeWeb, :controller
-
-  action_fallback AcmeWeb.FallbackController
-
-  def index(conn, params) do
-    with {:ok, params} <- AcmeWeb.Post.IndexContract.cast_and_validate(params) do
-      ## Your're cool. Now your params casted and validated
-      ...
+    embeds_many :complex_filters, primary_key: false do
+      field :id, :integer
     end
   end
 end
 ```
 
-You can also pass context from your web domain (for example current_user set in your
-connection assings) into `changeset/3` function via third argument:
+2. Add simple cast logic function
 
 ```elixir
-def index(conn, params) do
-  with {:ok, params} <- AcmeWeb.Post.IndexContract.cast_and_validate(params, user: conn.assigns.current_user) do
+# Still in your controller
+# Import `Ecto.Changeset` to make functions for handling changeset available
+import Ecto.Changeset
+
+defp index_contract(entity, attrs) do
+  entity
+  |> cast(attrs, [:page, :page_size])
+  |> cast_embed(:simple_filter, with: &index_simple_filter_contract/2)
+  |> cast_embed(:complex_filters, &index_complex_filter_contract/2)
+end
+
+defp index_simple_filter_contract(entity, attrs) do
+  cast(entity, attrs, [:name])
+end
+
+defp index_complex_filter_contract(entity, attrs) do
+  cast(entity, attrs, [:id])
 end
 ```
 
-And in your `changeset/3`:
+3. Validate your contract in controller action
 
 ```elixir
-def changeset(entity, attrs, user: user) do
-  ...
+def index(conn, params) do
+  with {:ok, casted_params} <- validate_contract(:index, params, [], &index_contract/2) do
+    posts = Posts.list_posts(casted_params)
+    render(conn, "index.json", posts: posts)
+  end
 end
 ```
