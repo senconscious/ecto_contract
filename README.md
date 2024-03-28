@@ -19,61 +19,82 @@ end
 
 ## Usage
 
-1. Define your contract in your controller
+1. Define your params in `acme_web/params` folder
 
 ```elixir
-defmodule AcmeWeb.PostController do
-  # Imports macro `defcontract/2` for defining your contract
-  # Also imports `field/3`, `embeds_one/3`, `embeds_many/3` from `Ecto.Schema`
-  use EctoContract
+defmodule AcmeWeb.DealIndexParam do
+  use Ecto.Schema
 
-  # Under the hood your contract schema will be defined under name
-  # of current module concateneted with `IndexContract`
-  defcontract :index do
-    field :page, :integer
-    field :page_size, :integer
+  import Ecto.Changeset
 
-    embeds_one :simple_filter, primary_key: false do
+  @primary_key false
+  embedded_schema do
+    field :page, :integer, default: 1
+    field :page_size, :integer, default: 10
+    field :user_id, :integer
+    field :office_id, :integer
+
+    embeds_one :funnel, Funnel, primary_key: false do
       field :name, :string
     end
+  end
 
-    embeds_many :complex_filters, primary_key: false do
-      field :id, :integer
+  def changeset(entity, attrs, _context) do
+    fields = entity.__struct__.__schema__(:fields) -- [:funnel]
+
+    entity
+    |> cast(attrs, fields)
+    |> validate_required([:user_id])
+    |> cast_embed(:funnel, with: &funnel_contract/2)
+  end
+
+  defp funnel_contract(entity, attrs) do
+    cast(entity, attrs, [:name])
+  end
+end
+```
+
+2. Easily validate params in your controller
+
+```elixir
+defmodule AcmeWeb.DealController do
+  use AcmeWeb, :controller
+
+  alias AcmeWeb.DealIndexParam
+
+  alias Acme.Deals
+
+  def index(conn, params) do
+    with {:ok, %DealIndexParam{} = casted_params} <- EctoContract.validate(DealIndexParam, params) do
+      deals = Deals.list_deals(casted_params)
+      render(conn, "index.json", deals: deals)
     end
   end
 end
 ```
 
-2. Add simple cast logic function
-
-```elixir
-# Still in your controller
-# Import `Ecto.Changeset` to make functions for handling changeset available
-import Ecto.Changeset
-
-defp index_contract(entity, attrs) do
-  entity
-  |> cast(attrs, [:page, :page_size])
-  |> cast_embed(:simple_filter, with: &index_simple_filter_contract/2)
-  |> cast_embed(:complex_filters, &index_complex_filter_contract/2)
-end
-
-defp index_simple_filter_contract(entity, attrs) do
-  cast(entity, attrs, [:name])
-end
-
-defp index_complex_filter_contract(entity, attrs) do
-  cast(entity, attrs, [:id])
-end
-```
-
-3. Validate your contract in controller action
+### Passing additional context
 
 ```elixir
 def index(conn, params) do
-  with {:ok, casted_params} <- validate_contract(:index, params, [], &index_contract/2) do
-    posts = Posts.list_posts(casted_params)
-    render(conn, "index.json", posts: posts)
+    with {:ok, casted_params} <- EctoContract.validate(DealIndexParam, params, user: conn.assigns.current_user) do
+      deals = Deals.list_deals(casted_params)
+      render(conn, "index.json", deals: deals)
+    end
   end
-end
+```
+
+### Deeply convert struct to map
+
+```elixir
+def index(conn, params) do
+    with {:ok, casted_params} <- EctoContract.validate(DealIndexParam, params, user: conn.assigns.current_user) do
+      deals =
+        casted_params
+        |> EctoContract.to_map()
+        |> Deals.list_deals()
+
+      render(conn, "index.json", deals: deals)
+    end
+  end
 ```
