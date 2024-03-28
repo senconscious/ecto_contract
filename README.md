@@ -12,7 +12,7 @@ Add `ecto_contract` to your deps in `mix.exs` file:
 ```elixir
 def deps do
   [
-    {:ecto_contract, github: "senconscious/ecto_contract", tag: "v0.0.2"}
+    {:ecto_contract, github: "senconscious/ecto_contract", tag: "v0.0.3"}
   ]
 end
 ```
