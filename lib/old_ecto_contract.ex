@@ -1,4 +1,4 @@
-defmodule EctoContract do
+defmodule OldEctoContract do
   @moduledoc """
   Define contract for your params in controller using `Ecto.Schema` and `Ecto.Changeset`
 
